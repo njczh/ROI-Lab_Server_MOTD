@@ -3,6 +3,7 @@
 # config
 max_usage=90
 bar_width=50
+
 # colors
 white="\e[39m"
 green="\e[1;32m"
@@ -10,55 +11,69 @@ red="\e[1;31m"
 dim="\e[2m"
 undim="\e[0m"
 
-red_disk_usage(){
-        LAST_MODIFY_TIMESTAMP=`stat -c %Y  du_100_sorted.log`
-        #格式化时间戳
-        format_date=`date '+%Y-%m-%d %H:%M:%S' -d @$LAST_MODIFY_TIMESTAMP`
-        echo -e "    [ ${red}/home${undim} USAGE ] Update Time：${green}${format_date}${undim}"
-        mapfile -t du_usage < <(tail -n+2 du_100_sorted.log)
-        row=$[(${#du_usage[@]}+3-1)/3]
-        for ((i=0;i<$row;i++))
-        do
-                #echo "${du_usage[$i]}"
-                printf "    ┣ #%2d | %8d %20s\t| %8d %20s\t| %8d %20s |\n" $i ${du_usage[$i]} ${du_usage[$i+$row*1]} ${du_usage[$i+$row*2]}
-        done
-}
+red_disk_usage() {
 
+    #格式化时间戳
+    if [[ $1 == "/home" ]]; then
+        LAST_MODIFY_TIMESTAMP=$(stat -c %Y /etc/update-motd.d/du_100_sorted.log)
+    elif [[ $1 == "/mnt/share" ]]; then
+        LAST_MODIFY_TIMESTAMP=$(stat -c %Y /etc/update-motd.d/du_100_share_sorted.log)
+    fi
+    format_date=$(date '+%Y-%m-%d %H:%M:%S' -d @$LAST_MODIFY_TIMESTAMP)
+
+    echo -e "    [ ${red}$1${undim} USAGE ] Update Time：${green}${format_date}${undim}"
+
+    if [[ $1 == "/home" ]]; then
+        mapfile -t du_usage < <(tail -n+2 /etc/update-motd.d/du_100_sorted.log)
+    elif [[ $1 == "/mnt/share" ]]; then
+        mapfile -t du_usage < <(tail -n+2 /etc/update-motd.d/du_100_share_sorted.log)
+    fi
+    row=$(((${#du_usage[@]} + 3 - 1) / 3))
+    for ((i = 0; i < $row; i++)); do
+        printf "    ┣ #%2d | %8d MB %20s\t| %8d MB %20s\t| %8d MB %20s |\n" $i ${du_usage[$i]} ${du_usage[$i + $row * 1]} ${du_usage[$i + $row * 2]}
+    done
+}
 
 # disk usage: ignore zfs, squashfs & tmpfs
 mapfile -t dfs < <(df -H -x zfs -x squashfs -x tmpfs -x devtmpfs -x overlay --output=target,pcent,size | tail -n+2)
 printf "\n[ DISK USAGE ]\n"
 
 for line in "${dfs[@]}"; do
+
+    disk_name=$(echo "$line" | awk '{print $1}' | sed 's/%//')
+    if [[ ${disk_name} == '/boot' || ${disk_name} == '/boot/efi' ]]; then
+        continue
+    fi
     # get disk usage
     usage=$(echo "$line" | awk '{print $2}' | sed 's/%//')
-    used_width=$((($usage*$bar_width)/100))
+    used_width=$((($usage * $bar_width) / 100))
+
     # color is green if usage < max_usage, else red
     if [ "${usage}" -ge "${max_usage}" ]; then
         color=$red
-	flag=1
+        flag=1
     else
         color=$green
-	flag=0
+        flag=0
     fi
     # print green/red bar until used_width
     bar="[${color}"
-    for ((i=0; i<$used_width; i++)); do
+    for ((i = 0; i < $used_width; i++)); do
         bar+="="
     done
     # print dimmmed bar until end
     bar+="${white}${dim}"
-    for ((i=$used_width; i<$bar_width; i++)); do
+    for ((i = $used_width; i < $bar_width; i++)); do
         bar+="="
     done
     bar+="${undim}]"
     # print usage line & bar
     echo "${line}" | awk '{ printf("%-31s%+3s used out of %+4s\n", $1, $2, $3); }' | sed -e 's/^/  /'
     echo -e "${bar}" | sed -e 's/^/  /'
-    disk_name=$(echo "$line" | awk '{print $1}' | sed 's/%//')
-    if [[ ${flag} == 1 ]] && [[ ${disk_name} == '/home' ]]; then
-    red_disk_usage
+
+    if [[ ${flag} == 1 ]] && [[ ${disk_name} == '/home' || ${disk_name} == '/mnt/share' ]]; then
+        red_disk_usage ${disk_name}
     fi
 done
-
-printf "\n"
+#
+#printf "\n"
